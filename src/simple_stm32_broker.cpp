@@ -230,18 +230,42 @@ private:
         float_value = *(float *)&float_hex;                       // Convert integer to float
     }
 
+    std::string read_line_from_serial()
+    {
+        std::string line;
+        char buffer;
+        ssize_t n;
+
+        do
+        {
+            n = read(serial_fd_, &buffer, 1);
+            if (n > 0)
+            {
+                line += buffer;
+            }
+        } while (n > 0 && buffer != '\n');
+
+        return line;
+    }
+
     void read_serial()
     {
-        char buf[1024];
+        /*char buf[1024];
         ssize_t n = read(serial_fd_, buf, sizeof(buf));
-        if (n > 0)
+        if (n == 0)
+        {
+            RCLCPP_WARN(this->get_logger(), "Received nothing");
+        }
+        else
         {
             buf[n] = '\0';
-            RCLCPP_DEBUG(this->get_logger(), "Received: %s", buf);
-            std::cout << "Received: " << buf << std::endl;
-            std::cout.flush();
+            //RCLCPP_INFO(this->get_logger(), "Received: %s", buf);
+            //std::cout << "Received: " << buf << std::endl;
+            //std::cout.flush(); 
 
-            std::string line(buf);
+            std::string line(buf);*/
+
+            std::string line = read_line_from_serial();
             if (line.substr(0, 2) == "o:" && line.length() >= 2 + 8 * 5)
             {
                 RCLCPP_WARN(this->get_logger(), "Received: %s", line.c_str());
@@ -261,6 +285,10 @@ private:
                 i += 8;
                 odom_pub_->publish(odom_msg);
             }
+            else
+            {
+                RCLCPP_ERROR(this->get_logger(), "Error! Received: %s", line.c_str());
+            }
 
             /*if (line.substr(0, 2) == "e:" && line.length() >= 2 + 8 * 2)
             {
@@ -273,7 +301,7 @@ private:
                 i += 8;
                 encoders_pub_->publish(encoders_msg);
             }*/
-        }
+        //}
     }
 
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr subscription_cmd_vel_;
