@@ -82,6 +82,28 @@ public:
 
 private:
 
+    // Define CRC parameters
+    #define CRC_POLYNOMIAL 0x1021
+    #define CRC_INITIAL_VALUE 0xFFFF
+
+    // Function to calculate CRC
+    uint16_t calculate_crc(const uint8_t *data, int length) {
+        uint16_t crc = CRC_INITIAL_VALUE;
+        
+        for (int i = 0; i < length; i++) {
+            crc ^= data[i] << 8;
+            for (int j = 0; j < 8; j++) {
+                if (crc & 0x8000) {
+                    crc = (crc << 1) ^ CRC_POLYNOMIAL;
+                } else {
+                    crc <<= 1;
+                }
+            }
+        }
+        
+        return crc;
+    }
+
     void configure_serial_port(int serial_fd)
     {
         termios options;
@@ -132,7 +154,7 @@ private:
         float_array_to_send.push_back(msg->max_current_right);
         float_array_to_send.push_back(msg->max_current);
 
-        RCLCPP_WARN_STREAM(this->get_logger(),  float_array_to_send[0] << ", " << float_array_to_send[1] << ", " << float_array_to_send[2]);
+        //RCLCPP_WARN_STREAM(this->get_logger(),  float_array_to_send[0] << ", " << float_array_to_send[1] << ", " << float_array_to_send[2]);
 
         write_float_to_serial('p', float_array_to_send);
     }
@@ -145,7 +167,7 @@ private:
         float_array_to_send.push_back(msg->pwm_override_left);
         float_array_to_send.push_back(msg->pwm_override_right);
         float_array_to_send.push_back(msg->reset_encoders);
-        RCLCPP_WARN_STREAM(this->get_logger(),  float_array_to_send[0] << ", " << float_array_to_send[1] << ", " << float_array_to_send[2]);
+        //RCLCPP_WARN_STREAM(this->get_logger(),  float_array_to_send[0] << ", " << float_array_to_send[1] << ", " << float_array_to_send[2]);
  
         write_float_to_serial('c', float_array_to_send);
     }
@@ -155,7 +177,7 @@ private:
         std::vector<float> float_array_to_send;
         float_array_to_send.push_back(msg->linear.x);
         float_array_to_send.push_back(msg->angular.z);
-        RCLCPP_WARN_STREAM(this->get_logger(),  float_array_to_send[0] << ", " << float_array_to_send[1]);
+        //RCLCPP_WARN_STREAM(this->get_logger(),  float_array_to_send[0] << ", " << float_array_to_send[1]);
 
         write_float_to_serial('v', float_array_to_send);
     }
@@ -190,7 +212,7 @@ private:
         }
         else
         {
-            RCLCPP_WARN(this->get_logger(), "Sending: %s", message.c_str());
+            //RCLCPP_WARN(this->get_logger(), "Sending: %s", message.c_str());
             //std::cout << "Sending: " << channel_name << std::string(reinterpret_cast<char*>(hex_values), sizeof(hex_values)) << std::endl;
             //std::cout.flush();
             std::this_thread::sleep_for(1ms);
@@ -265,25 +287,44 @@ private:
 
             std::string line(buf);*/
 
+
+
             std::string line = read_line_from_serial();
-            if (line.substr(0, 2) == "o:" && line.length() >= 2 + 8 * 5)
+            if (line.length() >= 2 + 8 * 5 + 2 && line.substr(0, 2) == "o:") // Ensure CRC is included
             {
-                RCLCPP_WARN(this->get_logger(), "Received: %s", line.c_str());
-                krabi_msgs::msg::OdomLighter odom_msg;
-                std::string hex_values = line;
-                //std::string hex_values = line.substr(2);// Get rid of o:
-                int i = 2;
-                get_float(hex_values, i, odom_msg.pose_x);
-                i += 8;
-                get_float(hex_values, i, odom_msg.pose_y);
-                i += 8;
-                get_float(hex_values, i, odom_msg.angle_rz);
-                i += 8;
-                get_float(hex_values, i, odom_msg.speed_vx);
-                i += 8;
-                get_float(hex_values, i, odom_msg.speed_wz);
-                i += 8;
-                odom_pub_->publish(odom_msg);
+                //RCLCPP_WARN(this->get_logger(), "Received: %s", line.c_str());
+                
+                // Extract CRC from the received line
+                std::string crc_str = line.substr(line.length() - 3, 2); // Assuming CRC is two bytes long
+                uint16_t received_crc = 0;
+                memcpy(&received_crc, crc_str.c_str(), sizeof(uint16_t));
+
+                // Compute CRC for the received data
+                uint16_t computed_crc = calculate_crc(reinterpret_cast<const uint8_t*>(line.c_str()), line.length() - 3); // Excluding CRC bytes
+                
+                // Validate CRC
+                if (received_crc == computed_crc)
+                {
+                    krabi_msgs::msg::OdomLighter odom_msg;
+                    std::string hex_values = line.substr(2, line.length() - 3); // Remove "o:" and CRC
+                    int i = 0;
+                    get_float(hex_values, i, odom_msg.pose_x);
+                    i += 8;
+                    get_float(hex_values, i, odom_msg.pose_y);
+                    i += 8;
+                    get_float(hex_values, i, odom_msg.angle_rz);
+                    i += 8;
+                    get_float(hex_values, i, odom_msg.speed_vx);
+                    i += 8;
+                    get_float(hex_values, i, odom_msg.speed_wz);
+                    i += 8;
+                    odom_pub_->publish(odom_msg);
+                }
+                else
+                {
+                    RCLCPP_ERROR(this->get_logger(), "CRC Error! Received: %s", line.c_str());
+                    RCLCPP_ERROR_STREAM(this->get_logger(), received_crc << " != " << computed_crc << std::endl);
+                }
             }
             else
             {
