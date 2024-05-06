@@ -42,7 +42,7 @@ public:
         odom_pub_ = this->create_publisher<krabi_msgs::msg::OdomLighter>("odom_lighter", 10);
         encoders_pub_ = this->create_publisher<krabi_msgs::msg::Encoders>("encoders", 10);
 
-        timer_ = this->create_wall_timer(10ms, std::bind(&SimpleBrokerSTM32::read_serial, this));
+        timer_ = this->create_wall_timer(1ms, std::bind(&SimpleBrokerSTM32::read_serial, this));
 
         serial_fd_ = open("/dev/ttyACM0", O_RDWR | O_NOCTTY | O_NDELAY);
         //serial_fd_ = open("/dev/ttyUSB0", O_RDWR | O_NOCTTY | O_NDELAY);
@@ -115,6 +115,10 @@ private:
         // Set terminal to raw mode
         options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
         options.c_oflag &= ~OPOST;
+
+        // Set terminal to canonical mode
+        //options.c_lflag |= (ICANON | ECHO | ECHOE | ISIG);
+        //options.c_oflag |= OPOST;
 
         // Set minimum characters to read
         options.c_cc[VMIN] = 0;
@@ -229,73 +233,80 @@ private:
 
     void read_serial()
     {
+        if (isReading)
+        {
+            return;
+        }
+        isReading = true;
+        std::string line = read_line_from_serial();
 
-            std::string line = read_line_from_serial();
-            if (line.length() >= 2 + 8 * 5 + 2 && line.substr(0, 2) == "o:") // Ensure CRC is included
+        if (line.length() >= 2 + 8 * 5 + 2 && line.substr(0, 2) == "o:") // Ensure CRC is included
+        {
+            //RCLCPP_WARN(this->get_logger(), "Received: %s", line.c_str());
+            
+            // Extract CRC from the received line
+            std::string crc_str = line.substr(line.length() - 3, 2); // Assuming CRC is two bytes long
+            uint16_t received_crc = 0;
+            memcpy(&received_crc, crc_str.c_str(), sizeof(uint16_t));
+
+            // Compute CRC for the received data
+            uint16_t computed_crc = calculate_crc(reinterpret_cast<const uint8_t*>(line.c_str()), line.length() - 3); // Excluding CRC bytes
+            
+            // Validate CRC
+            if (received_crc == computed_crc)
             {
-                //RCLCPP_WARN(this->get_logger(), "Received: %s", line.c_str());
-                
-                // Extract CRC from the received line
-                std::string crc_str = line.substr(line.length() - 3, 2); // Assuming CRC is two bytes long
-                uint16_t received_crc = 0;
-                memcpy(&received_crc, crc_str.c_str(), sizeof(uint16_t));
-
-                // Compute CRC for the received data
-                uint16_t computed_crc = calculate_crc(reinterpret_cast<const uint8_t*>(line.c_str()), line.length() - 3); // Excluding CRC bytes
-                
-                // Validate CRC
-                if (received_crc == computed_crc)
-                {
-                    krabi_msgs::msg::OdomLighter odom_msg;
-                    std::string hex_values = line.substr(2, line.length() - 3); // Remove "o:" and CRC
-                    int i = 0;
-                    get_float(hex_values, i, odom_msg.pose_x);
-                    i += 8;
-                    get_float(hex_values, i, odom_msg.pose_y);
-                    i += 8;
-                    get_float(hex_values, i, odom_msg.angle_rz);
-                    i += 8;
-                    get_float(hex_values, i, odom_msg.speed_vx);
-                    i += 8;
-                    get_float(hex_values, i, odom_msg.speed_wz);
-                    i += 8;
-                    odom_pub_->publish(odom_msg);
-                }
-                else
-                {
-                    RCLCPP_ERROR(this->get_logger(), "CRC Error! Received: %s", line.c_str());
-                    RCLCPP_ERROR_STREAM(this->get_logger(), received_crc << " != " << computed_crc << std::endl);
-                }
+                krabi_msgs::msg::OdomLighter odom_msg;
+                std::string hex_values = line.substr(2, line.length() - 3); // Remove "o:" and CRC
+                int i = 0;
+                get_float(hex_values, i, odom_msg.pose_x);
+                i += 8;
+                get_float(hex_values, i, odom_msg.pose_y);
+                i += 8;
+                get_float(hex_values, i, odom_msg.angle_rz);
+                i += 8;
+                get_float(hex_values, i, odom_msg.speed_vx);
+                i += 8;
+                get_float(hex_values, i, odom_msg.speed_wz);
+                i += 8;
+                odom_pub_->publish(odom_msg);
             }
             else
             {
-                RCLCPP_ERROR(this->get_logger(), "Error! Received: %s", line.c_str());
+                RCLCPP_ERROR(this->get_logger(), "CRC Error! Received: %s", line.c_str());
+                RCLCPP_ERROR_STREAM(this->get_logger(), received_crc << " != " << computed_crc << std::endl);
             }
+        }
+        else
+        {
+            RCLCPP_ERROR(this->get_logger(), "Error! Received: %s", line.c_str());
+        }
 
-            /*if (line.substr(0, 2) == "e:" && line.length() >= 2 + 8 * 2)
-            {
-                krabi_msgs::msg::Encoders encoders_msg;
-                std::string hex_values = line.substr(2 + 8 * 2);
-                int i = 0;
-                get_float(hex_values, i, encoders_msg.encoder_right);
-                i += 8;
-                get_float(hex_values, i, encoders_msg.encoder_left);
-                i += 8;
-                encoders_pub_->publish(encoders_msg);
-            }*/
-    }
+        /*if (line.substr(0, 2) == "e:" && line.length() >= 2 + 8 * 2)
+        {
+            krabi_msgs::msg::Encoders encoders_msg;
+            std::string hex_values = line.substr(2 + 8 * 2);
+            int i = 0;
+            get_float(hex_values, i, encoders_msg.encoder_right);
+            i += 8;
+            get_float(hex_values, i, encoders_msg.encoder_left);
+            i += 8;
+            encoders_pub_->publish(encoders_msg);
+        }*/
+        isReading = false;
+}
 
-    rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr subscription_cmd_vel_;
-    rclcpp::Subscription<krabi_msgs::msg::MotorsCmd>::SharedPtr subscription_motors_cmd_;
-    rclcpp::Subscription<krabi_msgs::msg::MotorsParameters>::SharedPtr subscription_motors_parameters_;
-    rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr subscription_enable_motor_;
+rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr subscription_cmd_vel_;
+rclcpp::Subscription<krabi_msgs::msg::MotorsCmd>::SharedPtr subscription_motors_cmd_;
+rclcpp::Subscription<krabi_msgs::msg::MotorsParameters>::SharedPtr subscription_motors_parameters_;
+rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr subscription_enable_motor_;
 
-    rclcpp::Publisher<krabi_msgs::msg::OdomLighter>::SharedPtr odom_pub_;
-    rclcpp::Publisher<krabi_msgs::msg::Encoders>::SharedPtr encoders_pub_;
+rclcpp::Publisher<krabi_msgs::msg::OdomLighter>::SharedPtr odom_pub_;
+rclcpp::Publisher<krabi_msgs::msg::Encoders>::SharedPtr encoders_pub_;
 
-    rclcpp::TimerBase::SharedPtr timer_;
+rclcpp::TimerBase::SharedPtr timer_;
 
-    int serial_fd_;
+int serial_fd_;
+bool isReading = false;
 };
 
 int main(int argc, char *argv[])
