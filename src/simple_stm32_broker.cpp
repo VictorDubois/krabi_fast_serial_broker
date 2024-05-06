@@ -55,20 +55,6 @@ public:
             fcntl(serial_fd_, F_SETFL, 0);
 
             configure_serial_port(serial_fd_);
-            /*termios options;
-            tcgetattr(serial_fd_, &options);
-            cfsetispeed(&options, B115200);
-            cfsetospeed(&options, B115200);
-            options.c_cflag |= (CLOCAL | CREAD);
-            options.c_cflag &= ~PARENB;
-            options.c_cflag &= ~CSTOPB;
-            options.c_cflag &= ~CSIZE;
-            options.c_cflag |= CS8;
-            options.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
-            options.c_oflag &= ~OPOST;
-            options.c_cc[VMIN] = 1;
-            options.c_cc[VTIME] = 0;
-            tcsetattr(serial_fd_, TCSANOW, &options);*/
         }
     }
 
@@ -182,13 +168,6 @@ private:
         write_float_to_serial('v', float_array_to_send);
     }
 
-    /*void float_to_hex(float float_value, std::string &hex_value)
-    {
-        std::stringstream stream;
-        stream << std::hex << std::setfill('0') << std::setw(8) << std::uppercase << std::bitset<32>(*(uint32_t *)&float_value);
-        hex_value = stream.str();
-    }*/
-
     void float_to_hex(const float a_value, uint8_t* a_out, const int start_pos)
     {
         uint32_t floatHex;
@@ -218,28 +197,6 @@ private:
             std::this_thread::sleep_for(1ms);
         }
     }
-
-
-    /*void write_float_to_serial(char channel_name, const std::vector<float> &float_values)
-    {
-        std::string hex_values;
-        for (float float_value : float_values)
-        {
-            std::string hex;
-            float_to_hex(float_value, hex);
-            hex_values += hex;
-        }
-        
-        // Pad to 10 values
-        hex_values.resize(10 * 8, '0');
-        std::string message = std::string(1, channel_name) + hex_values + "\n";
-        write(serial_fd_, message.c_str(), message.length());
-        RCLCPP_WARN(this->get_logger(), "Sending: %c%s", channel_name, hex_values.c_str());
-        RCLCPP_WARN_STREAM(this->get_logger(), "Sending: " << channel_name << std::hex << hex_values.c_str());
-        std::cout << "Sending: " << channel_name << hex_values << std::endl;
-        std::cout.flush();
-        std::this_thread::sleep_for(1ms);
-    }*/
 
     void get_float(const std::string &a_string, int a_beginning, float &float_value)
     {
@@ -272,22 +229,6 @@ private:
 
     void read_serial()
     {
-        /*char buf[1024];
-        ssize_t n = read(serial_fd_, buf, sizeof(buf));
-        if (n == 0)
-        {
-            RCLCPP_WARN(this->get_logger(), "Received nothing");
-        }
-        else
-        {
-            buf[n] = '\0';
-            //RCLCPP_INFO(this->get_logger(), "Received: %s", buf);
-            //std::cout << "Received: " << buf << std::endl;
-            //std::cout.flush(); 
-
-            std::string line(buf);*/
-
-
 
             std::string line = read_line_from_serial();
             if (line.length() >= 2 + 8 * 5 + 2 && line.substr(0, 2) == "o:") // Ensure CRC is included
@@ -342,7 +283,6 @@ private:
                 i += 8;
                 encoders_pub_->publish(encoders_msg);
             }*/
-        //}
     }
 
     rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr subscription_cmd_vel_;
